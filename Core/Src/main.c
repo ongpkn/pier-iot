@@ -23,11 +23,14 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+#include "liquidcrystal_i2c.h"
+#include "../../ECUAL/SERVO/SERVO.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 #define usTIM	TIM4
+#define SERVO_Motor1 0
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -42,6 +45,9 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 
+I2C_HandleTypeDef hi2c1;
+
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart2;
@@ -56,6 +62,8 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void usDelay(uint32_t uSec);
 /* USER CODE END PFP */
@@ -77,6 +85,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 	uint32_t numTicks = 0;
+	SERVO_Init(SERVO_Motor1);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -100,11 +109,17 @@ int main(void)
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   MX_TIM4_Init();
+  MX_TIM2_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   GPIO_TypeDef* TRIG_GPIO_Port = GPIOA;
   GPIO_TypeDef* ECHO_GPIO_Port = GPIOA;
   uint16_t TRIG_Pin = GPIO_PIN_8;
   uint16_t ECHO_Pin = GPIO_PIN_9;
+
+
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -120,9 +135,13 @@ int main(void)
 		  int ret = HAL_ADC_GetValue(&hadc1);
 		  sprintf(buf, "Brightness = %d\r\n", ret);
 		  if (ret > 3000) {
-			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
+			  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, 1);
+			  HAL_Delay(500);
 		  } else {
-			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+			  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
+			  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, 0);
+			  HAL_Delay(500);
 		  }
 		  HAL_UART_Transmit(&huart2, buf, strlen(buf), 1000);
 		  HAL_Delay(1000);
@@ -153,6 +172,36 @@ int main(void)
 
 	 //4. Estimate distance in cm
 	 distance = (numTicks + 0.0f)*2.8*speedOfSound;
+
+
+
+	 if (distance < 10) {
+		 TIM2->CCR1 = (2 << 20) / 2;
+
+		  HD44780_Init(2);
+		  HD44780_Clear();
+		  HD44780_SetCursor(0,0);
+		  HD44780_PrintStr("OK : PLEASE WALK");
+		  HD44780_SetCursor(0,1);
+		  HD44780_PrintStr("beware your step");
+
+		  SERVO_MoveTo(SERVO_Motor1, 180);
+		  HAL_Delay(300);
+
+	 } else {
+		 TIM2->CCR1 = 0;
+
+		  HD44780_Init(2);
+		  HD44780_Clear();
+		  HD44780_SetCursor(0,0);
+		  HD44780_PrintStr("! PLEASE  WAIT !");
+		  HD44780_SetCursor(3,1);
+		  HD44780_PrintStr("XXXXXXXXXX");
+
+		  SERVO_MoveTo(SERVO_Motor1, 0);
+		  HAL_Delay(300);
+
+	 }
 
 	 //5. Print to UART terminal for debugging
 	 sprintf(uartBuf, "Distance (cm)  = %.1f\r\n", distance);
@@ -262,6 +311,103 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 15;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 9999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
   * @brief TIM4 Initialization Function
   * @param None
   * @retval None
@@ -358,7 +504,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LD2_Pin|Ultrasonic___TRIG_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|Ultrasonic___TRIG_Pin|GPIO_PIN_10, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -373,8 +522,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD2_Pin Ultrasonic___TRIG_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin|Ultrasonic___TRIG_Pin;
+  /*Configure GPIO pins : LD2_Pin Ultrasonic___TRIG_Pin PA10 */
+  GPIO_InitStruct.Pin = LD2_Pin|Ultrasonic___TRIG_Pin|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -385,6 +534,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(Ultrasonic___ECHO_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : RELAY_Pin */
+  GPIO_InitStruct.Pin = RELAY_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(RELAY_GPIO_Port, &GPIO_InitStruct);
 
 }
 
